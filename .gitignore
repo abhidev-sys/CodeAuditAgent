@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.junit.xml
+
+# Database
+*.db
+*.sqlite
+
+# Docker volumes
+postgres_data/
+qdrant_data/
+
+# Logs
+*.log
+logs/
+
+# Reports (generated)
+reports/
+
+# Repositories (cloned for analysis)
+repos/
+
+# OS
+.DS_Store
+Thumbs.db
+
+test_db.py
