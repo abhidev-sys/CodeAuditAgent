@@ -1,0 +1,25 @@
+rules:
+  - id: python-sqli-string-concat
+    patterns:
+      - pattern: |
+          $QUERY = "..." + $VAR
+      - pattern-either:
+          - pattern: $DB.execute($QUERY)
+          - pattern: $CURSOR.execute($QUERY)
+    message: "SQL Injection: String concatenation in SQL query"
+    languages: [python]
+    severity: ERROR
+    metadata:
+      vuln_type: SQLI
+      severity: HIGH
+      cwe: CWE-89
+
+  - id: python-sqli-format
+    pattern: $DB.execute("..." % $VAR)
+    message: "SQL Injection: % formatting in SQL query"
+    languages: [python]
+    severity: ERROR
+    metadata:
+      vuln_type: SQLI
+      severity: HIGH
+      cwe: CWE-89

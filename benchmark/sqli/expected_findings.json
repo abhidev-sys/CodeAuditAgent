@@ -1,0 +1,19 @@
+{
+  "vulnerability_type": "SQLI",
+  "expected_findings": [
+    {
+      "file": "vulnerable_app.py",
+      "line": 12,
+      "severity": "HIGH",
+      "cwe": "CWE-89",
+      "description": "String concatenation in SQL query"
+    },
+    {
+      "file": "vulnerable_app.py",
+      "line": 21,
+      "severity": "HIGH",
+      "cwe": "CWE-89",
+      "description": "Format string in SQL query"
+    }
+  ]
+}

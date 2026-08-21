@@ -138,6 +138,8 @@ def detect_frameworks(repo_path: str) -> list[str]:
         except Exception as e:
             logger.warning("Could not read requirements.txt", error=str(e))
     
+    
+    
     # Step 2: Python files mein import statements scan karo
     for root, dirs, files in os.walk(repo_path):
         dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
@@ -169,18 +171,10 @@ def detect_frameworks(repo_path: str) -> list[str]:
     return result
 
 
+
+
 def find_entry_points(repo_path: str) -> list[str]:
-    """
-    Repository ke entry point files dhundho.
     
-    Entry points = files jahan se application shuru hoti hai.
-    
-    Args:
-        repo_path: Repository ka local path
-        
-    Returns:
-        Entry point files ki list (relative paths)
-    """
     entry_points = []
     repo = Path(repo_path)
     

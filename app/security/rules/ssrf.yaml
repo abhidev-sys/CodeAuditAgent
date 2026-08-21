@@ -1,0 +1,18 @@
+rules:
+  - id: python-ssrf-requests
+    patterns:
+      - pattern: requests.get($URL, ...)
+      - pattern-either:
+          - pattern-inside: |
+              $URL = request.args.get(...)
+              ...
+          - pattern-inside: |
+              $URL = request.form.get(...)
+              ...
+    message: "Potential SSRF: User-controlled URL in HTTP request"
+    languages: [python]
+    severity: WARNING
+    metadata:
+      vuln_type: SSRF
+      severity: HIGH
+      cwe: CWE-918
