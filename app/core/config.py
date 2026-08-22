@@ -34,7 +34,9 @@ class Settings(BaseSettings):
     # LLM
     llm_provider: Literal["openai", "anthropic", "groq", "ollama"] = "openai"
     llm_api_key: str = ""
-    llm_model_name: str = "openai/gpt-oss-120b"
+    llm_model_name: str = "llama-3.1-8b-instant"
+    llm_strong_model: str = "llama-3.3-70b-versatile"
+    
 
     # Database
     database_url: str = "postgresql+asyncpg://codeaudit:codeaudit@localhost:5433/codeauditdb"
