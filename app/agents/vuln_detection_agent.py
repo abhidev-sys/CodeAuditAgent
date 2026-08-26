@@ -352,3 +352,138 @@ def _parse_llm_response(response_text: str, fallback_finding: dict) -> dict:
             "is_false_positive": False,
             "reasoning": "Static analysis finding",
         }
+
+
+def _deduplicate_vulnerabilities(
+    vulnerabilities: list[dict],
+) -> list[dict]:
+    """
+    Merge overlapping vulnerabilities that represent
+    the same underlying security issue.
+
+    Example:
+
+        SQLI app.py:10
+        SQLI app.py:12
+
+    can represent one SQL injection flow.
+
+    Result:
+
+        SQLI app.py:10-12
+    """
+
+    if not vulnerabilities:
+        return []
+
+    # Sort by file, vulnerability type and line
+    sorted_vulns = sorted(
+        vulnerabilities,
+        key=lambda v: (
+            v.get("file_path", ""),
+            v.get("vuln_type", ""),
+            v.get("line_start", 0),
+        ),
+    )
+
+    merged = []
+
+    for vuln in sorted_vulns:
+
+        if not merged:
+            merged.append(vuln.copy())
+            continue
+
+        previous = merged[-1]
+
+        same_file = (
+            previous.get("file_path")
+            == vuln.get("file_path")
+        )
+
+        same_type = (
+            previous.get("vuln_type")
+            == vuln.get("vuln_type")
+        )
+
+        previous_end = previous.get(
+            "line_end",
+            previous.get("line_start", 0),
+        )
+
+        current_start = vuln.get(
+            "line_start",
+            0,
+        )
+
+        # Findings are considered overlapping/related
+        # when they are close together.
+        nearby = current_start <= previous_end + 2
+
+        if same_file and same_type and nearby:
+
+            # Merge line range
+            previous["line_start"] = min(
+                previous.get("line_start", current_start),
+                current_start,
+            )
+
+            previous["line_end"] = max(
+                previous_end,
+                vuln.get("line_end", current_start),
+            )
+
+            # Keep strongest confidence
+            previous["confidence"] = max(
+                previous.get("confidence", 0.0),
+                vuln.get("confidence", 0.0),
+            )
+
+            # Combine evidence
+            previous_evidence = previous.get(
+                "evidence",
+                "",
+            )
+
+            current_evidence = vuln.get(
+                "evidence",
+                "",
+            )
+
+            if current_evidence and current_evidence not in previous_evidence:
+                previous["evidence"] = (
+                    previous_evidence
+                    + "\n"
+                    + current_evidence
+                )
+
+            # Combine reasoning
+            previous_reasoning = previous.get(
+                "reasoning",
+                "",
+            )
+
+            current_reasoning = vuln.get(
+                "reasoning",
+                "",
+            )
+
+            if current_reasoning and current_reasoning not in previous_reasoning:
+                previous["reasoning"] = (
+                    previous_reasoning
+                    + "\n"
+                    + current_reasoning
+                )
+
+            logger.info(
+                "Merged overlapping vulnerabilities",
+                file=previous.get("file_path"),
+                vuln_type=previous.get("vuln_type"),
+                line_start=previous.get("line_start"),
+                line_end=previous.get("line_end"),
+            )
+
+        else:
+            merged.append(vuln.copy())
+
+    return merged
