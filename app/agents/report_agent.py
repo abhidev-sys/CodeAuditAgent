@@ -27,8 +27,8 @@ SEVERITY_WEIGHTS = {
 }
 
 CWE_DESCRIPTIONS = {
-    "CWE-89": "SQL Injection — Improper Neutralization of Special Elements in SQL Commands",
-    "CWE-79": "Cross-site Scripting (XSS) — Improper Neutralization of Input During Web Page Generation",
+    "CWE-89": "SQL Injection - Improper Neutralization of Special Elements in SQL Commands",
+    "CWE-79": "Cross-site Scripting (XSS) - Improper Neutralization of Input During Web Page Generation",
     "CWE-798": "Use of Hard-coded Credentials",
     "CWE-918": "Server-Side Request Forgery (SSRF)",
     "CWE-502": "Deserialization of Untrusted Data",
