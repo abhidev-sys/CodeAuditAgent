@@ -1,399 +1,263 @@
-"""New Scan — God Level UI."""
-
+"""New Scan page — professional scan creation workflow."""
 import time
 import streamlit as st
-from dashboard.api_client import (
-    ingest_repository, start_scan,
-    get_scan_status, get_findings, get_report,
-)
+from dashboard.api_client import ingest_repository, start_scan, get_scan_status
+from dashboard.components.states import error_state
+from dashboard.utils.formatting import fmt_datetime
 
 
 def render_new_scan():
     st.markdown("""
-    <div class="section-header">
-        <span class="section-title">[ NEW SECURITY SCAN ]</span>
-        <div class="section-line"></div>
+    <div class="page-header">
+        <h1>New Security Scan</h1>
+        <p class="subtitle">
+            Analyze a repository using CodeAuditAgent's autonomous security pipeline.
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown('<div class="content-area">', unsafe_allow_html=True)
+
+    # Pipeline info card
     st.markdown("""
-    <div class="terminal-box" style="margin-bottom: 20px;">
-        <div class="terminal-line terminal-info">$ codeaudit scan --target /path/to/repo</div>
-        <div class="terminal-line terminal-success">✓ Initializing AI security agents...</div>
-        <div class="terminal-line terminal-warn">⚡ Model: openai/gpt-oss-120b (120B params)</div>
+    <div class="caa-card" style="margin-bottom:24px;">
+        <div style="font-size:12px;color:#6e7681;text-transform:uppercase;
+            letter-spacing:0.8px;font-weight:600;margin-bottom:12px;">
+            Analysis Pipeline
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:12px;color:#8b949e;padding:4px 10px;
+                background:#21262d;border-radius:4px;">Repository Ingestion</span>
+            <span style="color:#6e7681;">→</span>
+            <span style="font-size:12px;color:#8b949e;padding:4px 10px;
+                background:#21262d;border-radius:4px;">Static Analysis + AST</span>
+            <span style="color:#6e7681;">→</span>
+            <span style="font-size:12px;color:#8b949e;padding:4px 10px;
+                background:#21262d;border-radius:4px;">AI Vulnerability Detection</span>
+            <span style="color:#6e7681;">→</span>
+            <span style="font-size:12px;color:#8b949e;padding:4px 10px;
+                background:#21262d;border-radius:4px;">Patch Generation</span>
+            <span style="color:#6e7681;">→</span>
+            <span style="font-size:12px;color:#8b949e;padding:4px 10px;
+                background:#21262d;border-radius:4px;">Security Report</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    with st.form("scan_form"):
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            repo_path = st.text_input(
-                "Repository Path",
-                placeholder="R:/codeauditagent/test_repo",
-                label_visibility="visible",
-            )
-        with col2:
-            repo_name = st.text_input(
-                "Name (optional)",
-                placeholder="my-app",
-            )
+    # Step state
+    if "scan_step" not in st.session_state:
+        st.session_state["scan_step"] = 1
+
+    step = st.session_state["scan_step"]
+
+    # Step indicator
+    _render_steps(step)
+    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+
+    if step == 1:
+        _step_repository()
+    elif step == 2:
+        _step_running()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def _render_steps(current: int):
+    steps = ["Repository", "Scanning", "Results"]
+    cols = st.columns(len(steps))
+    for i, (col, label) in enumerate(zip(cols, steps), 1):
+        with col:
+            active = i == current
+            done   = i < current
+            color  = "#1f6feb" if active else ("#3fb950" if done else "#30363d")
+            tc     = "#58a6ff" if active else ("#3fb950" if done else "#8b949e")
+            st.markdown(f"""
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:28px;height:28px;border-radius:50%;
+                    background:{color};display:flex;align-items:center;
+                    justify-content:center;font-size:12px;font-weight:700;
+                    color:{'#fff' if active or done else '#6e7681'};
+                    flex-shrink:0;">
+                    {'✓' if done else i}
+                </div>
+                <div style="font-size:13px;font-weight:{'600' if active else '400'};
+                    color:{tc};">{label}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+def _step_repository():
+    with st.form("repo_form"):
+        st.markdown('<div class="caa-card">', unsafe_allow_html=True)
+        st.markdown("""
+        <div style="font-size:12px;color:#6e7681;text-transform:uppercase;
+            letter-spacing:0.8px;font-weight:600;margin-bottom:16px;">
+            Repository Configuration
+        </div>
+        """, unsafe_allow_html=True)
+
+        repo_path = st.text_input(
+            "Repository Path *",
+            placeholder="R:/path/to/your/repository",
+            help="Absolute local path to the Python repository",
+        )
+        repo_name = st.text_input(
+            "Repository Name",
+            placeholder="my-flask-application",
+            help="Human-readable name for this repository",
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         submitted = st.form_submit_button(
-            "⚡  LAUNCH SECURITY SCAN",
+            "Start Security Scan →",
             type="primary",
             use_container_width=True,
         )
 
     if submitted:
         if not repo_path:
-            st.error("[ ERROR ] Repository path is required!")
+            st.error("Repository path is required.")
             return
-        _run_scan_flow(repo_path, repo_name)
+        st.session_state["scan_repo_path"] = repo_path
+        st.session_state["scan_repo_name"] = repo_name
+        st.session_state["scan_step"] = 2
+        st.rerun()
 
 
-def _run_scan_flow(repo_path: str, repo_name: str):
-    """Scan flow with god level UI."""
+def _step_running():
+    repo_path = st.session_state.get("scan_repo_path", "")
+    repo_name = st.session_state.get("scan_repo_name", "")
 
-    # Steps definition
-    steps = [
-        ("📁", "Repository Ingestion", "Parsing files, detecting language..."),
-        ("🌳", "Code Intelligence", "Building AST, tracing data flow..."),
-        ("🔍", "Static Analysis", "Running Bandit + custom patterns..."),
-        ("🧠", "AI Vulnerability Detection", "LLM agents analyzing code..."),
-        ("🔧", "Patch Generation", "Generating secure fixes..."),
-        ("📋", "Report Generation", "Building audit report..."),
+    st.markdown(f"""
+    <div class="caa-card" style="margin-bottom:16px;">
+        <div style="font-size:11px;color:#6e7681;text-transform:uppercase;
+            letter-spacing:0.8px;margin-bottom:8px;">Repository</div>
+        <div style="font-family:'JetBrains Mono',monospace;
+            font-size:13px;color:#e6edf3;">{repo_path}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if "active_scan_id" not in st.session_state:
+        with st.spinner("Ingesting repository..."):
+            ingest_r = ingest_repository(repo_path, repo_name)
+
+        if not ingest_r["success"]:
+            error_state("Repository ingestion failed", ingest_r.get("error",""))
+            if st.button("← Back"):
+                st.session_state["scan_step"] = 1
+                st.rerun()
+            return
+
+        repo_id = ingest_r["data"]["repository"]["id"]
+
+        with st.spinner("Starting scan pipeline..."):
+            scan_r = start_scan(repo_id)
+
+        if not scan_r["success"]:
+            error_state("Scan could not be started", scan_r.get("error",""))
+            if st.button("← Back"):
+                st.session_state["scan_step"] = 1
+                st.rerun()
+            return
+
+        st.session_state["active_scan_id"] = scan_r["data"]["id"]
+        st.session_state["active_repo_data"] = ingest_r["data"]
+
+    scan_id = st.session_state["active_scan_id"]
+    repo_data = st.session_state.get("active_repo_data", {})
+
+    # Repo info
+    repo_info = repo_data.get("repository", {})
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Language",  repo_info.get("language","N/A") or "N/A")
+    with c2:
+        fws = repo_data.get("frameworks",[])
+        st.metric("Frameworks", ", ".join(fws) if fws else "None")
+    with c3:
+        st.metric("Files", repo_data.get("analyzable_files", 0))
+
+    # Scan ID display
+    st.markdown(f"""
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;
+        padding:8px 14px;margin:12px 0;font-family:'JetBrains Mono',monospace;
+        font-size:12px;color:#8b949e;">
+        SCAN ID: <span style="color:#58a6ff;">{scan_id}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Pipeline stages
+    _render_pipeline(scan_id)
+
+    # Reset button
+    col1, col2 = st.columns([3,1])
+    with col2:
+        if st.button("New Scan", key="new_scan_reset"):
+            for k in ["active_scan_id","active_repo_data","scan_step"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+
+
+def _render_pipeline(scan_id: str):
+    stages = [
+        ("Repository Ingestion", "✓"),
+        ("Static Analysis + AST", None),
+        ("AI Vulnerability Detection", None),
+        ("Patch Generation", None),
+        ("Security Report Generation", None),
     ]
 
-    steps_placeholder = st.empty()
-
-    def render_steps(current_step, status="running"):
-        steps_html = ""
-        for i, (icon, title, desc) in enumerate(steps):
-            if i < current_step:
-                cls = "step-done"
-                prefix = "✓"
-            elif i == current_step:
-                cls = f"step-{status}"
-                prefix = "►" if status == "running" else "✗"
-            else:
-                cls = "step-pending"
-                prefix = "○"
-
-            steps_html += f"""
-            <div class="step-item {cls}">
-                <span>{icon}</span>
-                <span>{prefix} {title}</span>
-                <span style="color: #333; font-size: 0.75rem; margin-left: auto;">{desc}</span>
-            </div>
-            """
-
-        steps_placeholder.markdown(f"""
-        <div style="background: #111; border-radius: 12px; padding: 16px; border: 1px solid #1a1a1a;">
-            <div style="font-family: 'JetBrains Mono'; font-size: 0.7rem; color: #444; margin-bottom: 12px; letter-spacing: 2px;">
-                [ SCAN PIPELINE ]
-            </div>
-            {steps_html}
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Step 0: Ingest
-    render_steps(0)
-    result = ingest_repository(repo_path, repo_name)
-
-    if not result["success"]:
-        render_steps(0, "failed")
-        st.error(f"[ FAILED ] {result['error']}")
+    status_r = get_scan_status(scan_id)
+    if not status_r["success"]:
+        st.warning("Unable to fetch scan status")
         return
 
-    repo_data = result["data"]
-    repo_id = repo_data["repository"]["id"]
+    scan_status = status_r["data"].get("status","PENDING")
+    risk_score  = status_r["data"].get("risk_score")
 
-    # Show repo info
-    st.markdown(f"""
-    <div class="terminal-box" style="margin: 12px 0;">
-        <div class="terminal-line terminal-success">✓ Repository: {repo_data['repository']['name']}</div>
-        <div class="terminal-line terminal-info">  Language  : {repo_data['repository'].get('language', 'N/A')}</div>
-        <div class="terminal-line terminal-info">  Frameworks: {', '.join(repo_data.get('frameworks', []))}</div>
-        <div class="terminal-line terminal-info">  Files     : {repo_data.get('analyzable_files', 0)} analyzable</div>
-        <div class="terminal-line terminal-info">  ID        : {repo_id}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<p class="section-header">Pipeline Status</p>', unsafe_allow_html=True)
 
-    # Step 1: Start scan
-    render_steps(1)
-    scan_result = start_scan(repo_id)
-
-    if not scan_result["success"]:
-        render_steps(1, "failed")
-        st.error(f"[ FAILED ] {scan_result['error']}")
-        return
-
-    scan_id = scan_result["data"]["id"]
-    st.session_state["current_scan_id"] = scan_id
-
-    st.markdown(f"""
-    <div class="terminal-box" style="margin: 12px 0;">
-        <div class="terminal-line terminal-success">✓ Scan initiated</div>
-        <div class="terminal-line terminal-info">  Scan ID: {scan_id}</div>
-        <div class="terminal-line terminal-warn">  Status : RUNNING</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Poll status
-    max_wait = 180
-    waited = 0
-    current_step = 2
-
-    log_placeholder = st.empty()
-
-    while waited < max_wait:
-        status_result = get_scan_status(scan_id)
-
-        if not status_result["success"]:
-            st.error("Failed to get status")
-            return
-
-        scan_status = status_result["data"]["status"]
-
-        log_placeholder.markdown(f"""
-        <div class="terminal-box">
-            <div class="terminal-line terminal-warn">
-                ⚡ {scan_status} — {status_result['data'].get('message', '')}
-            </div>
-            <div class="terminal-line terminal-info">
-                ⏱  Elapsed: {waited}s
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
+    for i, (stage, _) in enumerate(stages):
         if scan_status == "COMPLETED":
-            render_steps(len(steps) - 1)
-            log_placeholder.empty()
-            break
+            dot = '<span class="status-dot dot-green"></span>'
+            label = '<span style="color:#3fb950;font-size:12px;">Completed</span>'
         elif scan_status == "FAILED":
-            render_steps(current_step, "failed")
-            st.error(f"[ FAILED ] {status_result['data'].get('error_message')}")
-            return
+            dot = '<span class="status-dot dot-red"></span>'
+            label = '<span style="color:#f85149;font-size:12px;">Failed</span>'
+        elif scan_status == "RUNNING" and i == 0:
+            dot = '<span class="status-dot dot-green"></span>'
+            label = '<span style="color:#3fb950;font-size:12px;">Completed</span>'
+        elif scan_status in ["RUNNING","PENDING"] and i == 1:
+            dot = '<span class="status-dot dot-blue"></span>'
+            label = '<span style="color:#58a6ff;font-size:12px;">Running...</span>'
+        else:
+            dot = '<span class="status-dot dot-gray"></span>'
+            label = '<span style="color:#6e7681;font-size:12px;">Pending</span>'
 
-        # Update step visualization
-        if waited > 10 and current_step < 3:
-            current_step = 3
-        elif waited > 20 and current_step < 4:
-            current_step = 4
-        elif waited > 30 and current_step < 5:
-            current_step = 5
-
-        render_steps(current_step)
-        time.sleep(3)
-        waited += 3
-    else:
-        st.error("[ TIMEOUT ] Scan exceeded time limit")
-        return
-
-    # SUCCESS
-    risk_score = status_result["data"].get("risk_score", 0)
-    _render_results(scan_id, risk_score)
-
-
-def _render_results(scan_id: str, risk_score: int):
-    """Results render karo."""
-
-    st.markdown("---")
-
-    # Risk score
-    _render_risk_box(risk_score)
-
-    # Findings
-    findings_result = get_findings(scan_id)
-    if findings_result["success"]:
-        _render_findings_section(findings_result["data"])
-
-    # Report
-    report_result = get_report(scan_id)
-    if report_result["success"]:
-        _render_recommendations(report_result["data"])
-
-    st.session_state["selected_scan_id"] = scan_id
-
-
-def _render_risk_box(risk_score: int):
-    """Risk score box."""
-    if risk_score >= 75:
-        color = "#ff4757"
-        level = "CRITICAL RISK"
-        glow = "#ff475730"
-    elif risk_score >= 50:
-        color = "#ff6b35"
-        level = "HIGH RISK"
-        glow = "#ff6b3530"
-    elif risk_score >= 25:
-        color = "#ffa502"
-        level = "MEDIUM RISK"
-        glow = "#ffa50230"
-    elif risk_score > 0:
-        color = "#2ed573"
-        level = "LOW RISK"
-        glow = "#2ed57330"
-    else:
-        color = "#00ff41"
-        level = "SECURE"
-        glow = "#00ff4130"
-
-    st.markdown(f"""
-    <div style="
-        background: #111;
-        border: 1px solid {color}40;
-        border-radius: 16px;
-        padding: 30px;
-        text-align: center;
-        margin: 16px 0;
-        box-shadow: 0 0 40px {glow};
-    ">
-        <div style="
-            font-size: 5rem;
-            font-weight: 900;
-            color: {color};
-            font-family: 'JetBrains Mono', monospace;
-            line-height: 1;
-            text-shadow: 0 0 40px {color}60;
-        ">{risk_score}<span style="font-size: 2rem; color: #333;">/100</span></div>
-        <div style="
-            display: inline-block;
-            padding: 6px 24px;
-            border-radius: 20px;
-            background: {color}20;
-            border: 1px solid {color}40;
-            color: {color};
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
-            font-weight: 700;
-            letter-spacing: 3px;
-            margin-top: 12px;
-        ">{level}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def _render_findings_section(findings_data: dict):
-    """Findings section."""
-    st.markdown("""
-    <div class="section-header">
-        <span class="section-title">[ VULNERABILITIES ]</span>
-        <div class="section-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Counts
-    counts_html = f"""
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0;">
-        <div style="background: #ff475710; border: 1px solid #ff475740; border-radius: 8px; padding: 16px; text-align: center;">
-            <div style="font-size: 2rem; font-weight: 700; color: #ff4757; font-family: 'JetBrains Mono';">{findings_data.get('critical', 0)}</div>
-            <div style="font-size: 0.7rem; color: #666; letter-spacing: 2px; margin-top: 4px;">CRITICAL</div>
-        </div>
-        <div style="background: #ff6b3510; border: 1px solid #ff6b3540; border-radius: 8px; padding: 16px; text-align: center;">
-            <div style="font-size: 2rem; font-weight: 700; color: #ff6b35; font-family: 'JetBrains Mono';">{findings_data.get('high', 0)}</div>
-            <div style="font-size: 0.7rem; color: #666; letter-spacing: 2px; margin-top: 4px;">HIGH</div>
-        </div>
-        <div style="background: #ffa50210; border: 1px solid #ffa50240; border-radius: 8px; padding: 16px; text-align: center;">
-            <div style="font-size: 2rem; font-weight: 700; color: #ffa502; font-family: 'JetBrains Mono';">{findings_data.get('medium', 0)}</div>
-            <div style="font-size: 0.7rem; color: #666; letter-spacing: 2px; margin-top: 4px;">MEDIUM</div>
-        </div>
-        <div style="background: #2ed57310; border: 1px solid #2ed57340; border-radius: 8px; padding: 16px; text-align: center;">
-            <div style="font-size: 2rem; font-weight: 700; color: #2ed573; font-family: 'JetBrains Mono';">{findings_data.get('low', 0)}</div>
-            <div style="font-size: 0.7rem; color: #666; letter-spacing: 2px; margin-top: 4px;">LOW</div>
-        </div>
-    </div>
-    """
-    st.markdown(counts_html, unsafe_allow_html=True)
-
-    findings = findings_data.get("findings", [])
-    if not findings:
-        st.markdown("""
-        <div style="text-align: center; padding: 40px; color: #00ff41; font-family: 'JetBrains Mono';">
-            ✓ NO VULNERABILITIES DETECTED — CODE IS SECURE
-        </div>
-        """, unsafe_allow_html=True)
-        return
-
-    for i, finding in enumerate(findings):
-        severity = finding.get("severity", "LOW")
-        severity_colors = {
-            "CRITICAL": "#ff4757",
-            "HIGH": "#ff6b35",
-            "MEDIUM": "#ffa502",
-            "LOW": "#2ed573",
-        }
-        color = severity_colors.get(severity, "#666")
-
-        with st.expander(
-            f"  [{severity}] {finding.get('vuln_type')}  |  "
-            f"{finding.get('file_path')}:{finding.get('line_start')}  |  "
-            f"Confidence: {float(finding.get('confidence', 0)):.0%}",
-            expanded=True,
-        ):
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown(f"""
-                <div class="terminal-box">
-                    <div class="terminal-line"><span style="color:#555">TYPE      </span> <span style="color:{color}">{finding.get('vuln_type')}</span></div>
-                    <div class="terminal-line"><span style="color:#555">SEVERITY  </span> <span style="color:{color}">{severity}</span></div>
-                    <div class="terminal-line"><span style="color:#555">CONFIDENCE</span> <span style="color:#00ff41">{float(finding.get('confidence', 0)):.0%}</span></div>
-                    <div class="terminal-line"><span style="color:#555">FILE      </span> <span style="color:#00b4d8">{finding.get('file_path')}</span></div>
-                    <div class="terminal-line"><span style="color:#555">LINE      </span> <span style="color:#00b4d8">{finding.get('line_start')}</span></div>
-                    <div class="terminal-line"><span style="color:#555">CWE       </span> <span style="color:#ffa502">{finding.get('cwe_id', 'N/A')}</span></div>
-                    <div class="terminal-line"><span style="color:#555">STATUS    </span> <span style="color:#ff4757">{finding.get('status', 'OPEN')}</span></div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            with col2:
-                st.markdown(f"""
-                <div style="background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px; padding: 16px; height: 100%;">
-                    <div style="font-family: 'JetBrains Mono'; font-size: 0.7rem; color: #444; margin-bottom: 8px; letter-spacing: 2px;">[ AI ANALYSIS ]</div>
-                    <div style="color: #aaa; font-size: 0.85rem; line-height: 1.6;">
-                        {finding.get('description', 'No description available')}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-
-def _render_recommendations(report_data: dict):
-    """Recommendations section."""
-    st.markdown("""
-    <div class="section-header">
-        <span class="section-title">[ RECOMMENDATIONS ]</span>
-        <div class="section-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    recs = report_data.get("recommendations", [])
-    for i, rec in enumerate(recs, 1):
         st.markdown(f"""
-        <div class="rec-item">
-            <span class="rec-number">{i:02d}</span>
-            <span>{rec}</span>
+        <div class="pipeline-stage {'completed' if scan_status=='COMPLETED' else 'running' if (scan_status=='RUNNING' and i==1) else ''}">
+            {dot}
+            <span style="font-size:13px;color:#e6edf3;flex:1;">{stage}</span>
+            {label}
         </div>
         """, unsafe_allow_html=True)
 
-    # Executive summary
-    st.markdown("""
-    <div class="section-header">
-        <span class="section-title">[ EXECUTIVE SUMMARY ]</span>
-        <div class="section-line"></div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div style="
-        background: #111;
-        border: 1px solid #1a1a1a;
-        border-radius: 8px;
-        padding: 16px;
-        color: #aaa;
-        font-size: 0.9rem;
-        line-height: 1.7;
-        border-left: 3px solid #00ff41;
-    ">
-        {report_data.get('executive_summary', 'No summary available')}
-    </div>
-    """, unsafe_allow_html=True)
+    if scan_status == "COMPLETED":
+        st.success(f"✓ Scan complete — Risk Score: {risk_score}/100")
+        if st.button("View Results →", type="primary", key="goto_results"):
+            st.session_state["selected_scan_id"] = scan_id
+            st.session_state["page"] = "scan_results"
+            for k in ["active_scan_id","active_repo_data","scan_step"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+    elif scan_status == "FAILED":
+        err = status_r["data"].get("error_message","Unknown error")
+        st.error(f"Scan failed: {err}")
+    else:
+        st.info(f"Status: {scan_status} — Refresh to update")
+        if st.button("↻ Refresh", key="refresh_scan"):
+            st.rerun()

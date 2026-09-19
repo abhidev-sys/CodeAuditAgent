@@ -1,13 +1,14 @@
 """
-CodeAuditAgent — Streamlit Dashboard
-
-Main entry point for the dashboard.
-Run with: streamlit run dashboard/app.py
+CodeAuditAgent — Enterprise Security Dashboard
+Run: streamlit run dashboard/app.py
 """
+
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import streamlit as st
 
-# Page config — MUST be first Streamlit call
 st.set_page_config(
     page_title="CodeAuditAgent",
     page_icon="🔒",
@@ -15,110 +16,46 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.views.home import render_home
+from dashboard.styles.theme import inject_theme
+from dashboard.components.sidebar import render_sidebar
+from dashboard.components.badges import render_top_bar
+from dashboard.api_client import check_health
+from dashboard.views.overview import render_overview
 from dashboard.views.new_scan import render_new_scan
 from dashboard.views.scan_results import render_scan_results
 from dashboard.views.history import render_history
+from dashboard.views.vulnerabilities import render_vulnerabilities
+from dashboard.views.reports import render_reports
+from dashboard.views.system import render_system
 
+# Inject theme
+inject_theme()
 
-def main():
-    """Main dashboard application."""
+# Init state
+if "page" not in st.session_state:
+    st.session_state["page"] = "overview"
 
-    # Custom CSS
-    st.markdown("""
-    <style>
-        /* Main header */
-        .main-header {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        .main-header h1 {
-            color: #e94560;
-            font-size: 2.5rem;
-            margin: 0;
-        }
-        .main-header p {
-            color: #a8b2d8;
-            margin: 5px 0 0 0;
-        }
+# Render sidebar
+render_sidebar()
 
-        /* Risk score cards */
-        .metric-card {
-            background: #16213e;
-            border-radius: 10px;
-            padding: 15px;
-            text-align: center;
-            border: 1px solid #0f3460;
-        }
+# Top bar
+health = check_health()
+db_ok  = health.get("data",{}).get("database") == "connected"
+api_ok = health["success"]
+render_top_bar(db_ok=db_ok, api_ok=api_ok)
 
-        /* Severity badges */
-        .badge-critical { color: #ff4757; font-weight: bold; }
-        .badge-high     { color: #ff6b35; font-weight: bold; }
-        .badge-medium   { color: #ffa502; font-weight: bold; }
-        .badge-low      { color: #2ed573; font-weight: bold; }
+# Route to page
+page = st.session_state.get("page", "overview")
 
-        /* Finding cards */
-        .finding-card {
-            background: #16213e;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-            border-left: 4px solid #e94560;
-        }
+PAGE_MAP = {
+    "overview":        render_overview,
+    "new_scan":        render_new_scan,
+    "scan_results":    render_scan_results,
+    "history":         render_history,
+    "vulnerabilities": render_vulnerabilities,
+    "reports":         render_reports,
+    "system":          render_system,
+}
 
-        /* Status badges */
-        .status-running  { color: #ffa502; }
-        .status-complete { color: #2ed573; }
-        .status-failed   { color: #ff4757; }
-
-        /* Hide streamlit branding */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-    </style>
-    """, unsafe_allow_html=True)
-
-    # Header
-    st.markdown("""
-    <div class="main-header">
-        <h1>🔒 CodeAuditAgent</h1>
-        <p>Autonomous AI Security Auditor — Detect → Reason → Patch → Verify</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Sidebar navigation
-    with st.sidebar:
-        st.markdown("## Navigation")
-        page = st.radio(
-            "Go to",
-            ["🏠 Home", "🔍 New Scan", "📊 Scan Results", "📋 History"],
-            label_visibility="collapsed",
-        )
-        st.markdown("---")
-        st.markdown("### About")
-        st.markdown("""
-        **CodeAuditAgent** uses AI agents to:
-        - 🔍 Detect vulnerabilities
-        - 🧠 Reason about exploitability
-        - 🔧 Generate secure patches
-        - ✅ Verify fixes
-        """)
-        st.markdown("---")
-        st.markdown("**API:** `http://localhost:9000`")
-        st.markdown("**Docs:** `http://localhost:9000/docs`")
-
-    # Route to page
-    if page == "🏠 Home":
-        render_home()
-    elif page == "🔍 New Scan":
-        render_new_scan()
-    elif page == "📊 Scan Results":
-        render_scan_results()
-    elif page == "📋 History":
-        render_history()
-
-
-if __name__ == "__main__":
-    main()
+renderer = PAGE_MAP.get(page, render_overview)
+renderer()

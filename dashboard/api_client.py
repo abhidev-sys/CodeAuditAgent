@@ -1,114 +1,64 @@
-"""
-API Client — Dashboard se API ke saath communicate karta hai.
-
-Yeh layer dashboard views ko API calls se abstract karta hai.
-Agar API URL change ho toh sirf yahan change karo.
-"""
-
+"""API Client for CodeAuditAgent dashboard."""
 import httpx
-import streamlit as st
 from typing import Optional
 
 API_BASE = "http://127.0.0.1:9000/api/v1"
-TIMEOUT = 120.0
+TIMEOUT  = 120.0
 
 
-def ingest_repository(path: str, name: Optional[str] = None) -> dict:
-    """Repository ingest karo."""
+def _get(path: str, timeout: float = 30.0) -> dict:
     try:
-        resp = httpx.post(
-            f"{API_BASE}/repositories/",
-            json={"path": path, "name": name or path.split("/")[-1]},
-            timeout=TIMEOUT,
-        )
-        if resp.status_code == 201:
-            return {"success": True, "data": resp.json()}
-        else:
-            return {"success": False, "error": resp.json().get("detail", "Unknown error")}
+        r = httpx.get(f"{API_BASE}{path}", timeout=timeout)
+        if r.status_code == 200:
+            return {"success": True, "data": r.json()}
+        return {"success": False, "error": r.text[:200], "data": {}}
+    except Exception as e:
+        return {"success": False, "error": str(e), "data": {}}
+
+
+def _post(path: str, body: dict, timeout: float = TIMEOUT) -> dict:
+    try:
+        r = httpx.post(f"{API_BASE}{path}", json=body, timeout=timeout)
+        if r.status_code in [200, 201, 202]:
+            return {"success": True, "data": r.json()}
+        return {"success": False, "error": r.json().get("detail", r.text[:200])}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-def start_scan(repository_id: str) -> dict:
-    """Scan start karo."""
+def check_health() -> dict:
     try:
-        resp = httpx.post(
-            f"{API_BASE}/scans/",
-            json={"repository_id": repository_id},
-            timeout=TIMEOUT,
-        )
-        if resp.status_code in [200, 202]:
-            return {"success": True, "data": resp.json()}
-        else:
-            return {"success": False, "error": resp.json().get("detail", "Unknown error")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-def get_scan_status(scan_id: str) -> dict:
-    """Scan status fetch karo."""
-    try:
-        resp = httpx.get(
-            f"{API_BASE}/scans/{scan_id}",
-            timeout=30.0,
-        )
-        if resp.status_code == 200:
-            return {"success": True, "data": resp.json()}
-        else:
-            return {"success": False, "error": "Scan not found"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-def get_findings(scan_id: str) -> dict:
-    """Findings fetch karo."""
-    try:
-        resp = httpx.get(
-            f"{API_BASE}/findings/{scan_id}",
-            timeout=30.0,
-        )
-        if resp.status_code == 200:
-            return {"success": True, "data": resp.json()}
-        else:
-            return {"success": False, "error": resp.json().get("detail", "Unknown error")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-def get_report(scan_id: str) -> dict:
-    """Report fetch karo."""
-    try:
-        resp = httpx.get(
-            f"{API_BASE}/reports/{scan_id}",
-            timeout=30.0,
-        )
-        if resp.status_code == 200:
-            return {"success": True, "data": resp.json()}
-        else:
-            return {"success": False, "error": resp.json().get("detail", "Unknown error")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        r = httpx.get("http://127.0.0.1:9000/health", timeout=5.0)
+        if r.status_code == 200:
+            return {"success": True, "data": r.json()}
+        return {"success": False, "data": {}}
+    except Exception:
+        return {"success": False, "data": {}}
 
 
 def list_repositories() -> dict:
-    """Saari repositories list karo."""
-    try:
-        resp = httpx.get(f"{API_BASE}/repositories/", timeout=30.0)
-        if resp.status_code == 200:
-            return {"success": True, "data": resp.json()}
-        else:
-            return {"success": False, "error": "Failed to fetch repositories"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    return _get("/repositories/")
+
+
+def ingest_repository(path: str, name: Optional[str] = None) -> dict:
+    return _post("/repositories/", {"path": path, "name": name or path.split("/")[-1]})
 
 
 def list_scans() -> dict:
-    """Saare scans list karo."""
-    try:
-        resp = httpx.get(f"{API_BASE}/scans/", timeout=30.0)
-        if resp.status_code == 200:
-            return {"success": True, "data": resp.json()}
-        else:
-            return {"success": False, "error": "Failed to fetch scans"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    return _get("/scans/")
+
+
+def start_scan(repository_id: str) -> dict:
+    return _post("/scans/", {"repository_id": repository_id})
+
+
+def get_scan_status(scan_id: str) -> dict:
+    return _get(f"/scans/{scan_id}")
+
+
+def get_findings(scan_id: str) -> dict:
+    return _get(f"/findings/{scan_id}")
+
+
+def get_report(scan_id: str) -> dict:
+    return _get(f"/reports/{scan_id}")

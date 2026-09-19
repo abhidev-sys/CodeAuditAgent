@@ -156,14 +156,9 @@ def _run_bandit(repository_path: str) -> list[StaticFinding]:
 
     try:
         # Bandit command — JSON output format
-        cmd = [
-            "bandit",
-            "-r",                    # Recursive scan
-            repository_path,
-            "-f", "json",            # JSON format
-            "-q",                    # Quiet mode
-            "--exit-zero",           # Exit 0 even if findings found
-        ]
+        abs_path = str(Path(repository_path).resolve())
+        cmd = ["bandit", "-r", abs_path, "-f", "json", "-q", "--exit-zero"]
+        
 
         result = subprocess.run(
             cmd,
@@ -382,40 +377,26 @@ def _parse_semgrep_result(item: dict, repo_path: str) -> StaticFinding | None:
 
 
 def _run_custom_patterns(repository_path: str) -> list[StaticFinding]:
-    """
-    Hamare custom patterns run karo.
-
-    Yeh patterns specifically hamari 5 vulnerability types ke liye hain:
-    - SQL Injection
-    - XSS
-    - Hardcoded Secrets
-    - SSRF
-    - Insecure Deserialization
-    """
     findings = []
-    repo = Path(repository_path)
+    repo = Path(repository_path).resolve()  # ← .resolve() add karo
 
-    # Sirf Python files scan karo
     python_files = list(repo.rglob("*.py"))
-
+    
     for file_path in python_files:
-        # Skip virtual env aur migrations
         parts = file_path.parts
         if any(p in parts for p in ["venv", ".venv", "migrations", "__pycache__"]):
             continue
-
         try:
             source = file_path.read_text(encoding="utf-8", errors="ignore")
             lines = source.splitlines()
-
+            # Relative path use karo
+            rel_path = str(file_path.relative_to(repo))
             file_findings = _check_custom_patterns(
-                str(file_path), lines, repository_path
+                rel_path, lines
             )
             findings.extend(file_findings)
-
         except Exception as e:
-            logger.warning("Custom pattern check failed", file=str(file_path), error=str(e))
-
+            continue
     return findings
 
 

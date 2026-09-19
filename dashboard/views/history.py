@@ -1,215 +1,136 @@
-"""
-History page — All repositories and scans.
-"""
-
+"""Scan History page."""
 import streamlit as st
-
-from dashboard.api_client import (
-    list_repositories,
-    list_scans,
+from dashboard.api_client import list_scans, list_repositories
+from dashboard.components.states import empty_state, error_state
+from dashboard.utils.formatting import (
+    fmt_datetime, fmt_status_badge, fmt_risk_level,
+    fmt_severity_badge, shorten_id
 )
 
 
 def render_history():
-    """Render the scan history page."""
+    st.markdown("""
+    <div class="page-header">
+        <h1>Scan History</h1>
+        <p class="subtitle">Review previous security scans and repository security posture.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("## 📋 Scan History")
+    st.markdown('<div class="content-area">', unsafe_allow_html=True)
 
-    # ============================================================
-    # REPOSITORIES
-    # ============================================================
+    scans_r = list_scans()
+    repos_r = list_repositories()
 
-    st.markdown("### 📁 Repositories")
-
-    repos_result = list_repositories()
-
-    if not repos_result["success"]:
-        st.error(f"Failed to load repositories: {repos_result['error']}")
-    else:
-        repos = repos_result["data"]
-
-        if not repos:
-            st.info("No repositories have been ingested yet.")
-
-        else:
-            for repo in repos:
-
-                repo_name = repo.get("name", "Unknown Repository")
-                language = repo.get("language", "N/A")
-
-                with st.expander(
-                    f"📁 {repo_name} — {language}"
-                ):
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        st.metric(
-                            "Language",
-                            language
-                        )
-
-                    with col2:
-                        st.metric(
-                            "Files",
-                            repo.get("total_files", 0)
-                        )
-
-                    with col3:
-                        st.metric(
-                            "Lines",
-                            repo.get("total_lines", 0)
-                        )
-
-                    st.markdown("**Repository Path**")
-                    st.code(
-                        repo.get("path", "N/A")
-                    )
-
-                    st.markdown("**Repository ID**")
-                    st.code(
-                        repo.get("id", "N/A")
-                    )
-
-    st.markdown("---")
-
-    # ============================================================
-    # SCAN HISTORY
-    # ============================================================
-
-    st.markdown("### 🔍 All Scans")
-
-    scans_result = list_scans()
-
-    if not scans_result["success"]:
-        st.error(
-            f"Failed to load scans: {scans_result['error']}"
-        )
+    if not scans_r["success"]:
+        error_state("Could not load scan history", scans_r.get("error",""))
+        st.markdown('</div>', unsafe_allow_html=True)
         return
 
-    scans = scans_result["data"]
+    scans = scans_r.get("data", [])
 
     if not scans:
-        st.info("No scans have been performed yet.")
+        empty_state("≡", "No scan history",
+                   "Run your first security scan to build your audit trail.",
+                   "New Scan", "new_scan")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
 
-    # ============================================================
-    # SCAN SUMMARY
-    # ============================================================
-
-    completed = sum(
-        1 for scan in scans
-        if scan.get("status") == "COMPLETED"
-    )
-
-    running = sum(
-        1 for scan in scans
-        if scan.get("status") == "RUNNING"
-    )
-
-    failed = sum(
-        1 for scan in scans
-        if scan.get("status") == "FAILED"
-    )
-
-    col1, col2, col3, col4 = st.columns(4)
-
+    # Filter bar
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric(
-            "Total Scans",
-            len(scans)
+        status_filter = st.selectbox(
+            "Status",
+            ["All", "COMPLETED", "RUNNING", "PENDING", "FAILED"],
+            label_visibility="collapsed",
         )
-
     with col2:
-        st.metric(
-            "Completed",
-            completed
+        risk_filter = st.selectbox(
+            "Risk Level",
+            ["All Risk Levels", "CRITICAL", "HIGH", "MEDIUM", "LOW", "SAFE"],
+            label_visibility="collapsed",
         )
-
     with col3:
-        st.metric(
-            "Running",
-            running
+        search = st.text_input(
+            "Search",
+            placeholder="Search scan ID...",
+            label_visibility="collapsed",
         )
 
-    with col4:
-        st.metric(
-            "Failed",
-            failed
+    # Apply filters
+    filtered = scans
+    if status_filter != "All":
+        filtered = [s for s in filtered if s.get("status") == status_filter]
+    if risk_filter != "All Risk Levels":
+        filtered = [
+            s for s in filtered
+            if fmt_risk_level(s.get("risk_score",0))[0] == risk_filter
+        ]
+    if search:
+        filtered = [s for s in filtered if search.lower() in str(s.get("id","")).lower()]
+
+    st.markdown(f"""
+    <div style="font-size:12px;color:#6e7681;margin:12px 0;">
+        Showing {len(filtered)} of {len(scans)} scans
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Table
+    st.markdown("""
+    <table class="caa-table">
+    <thead><tr>
+        <th>Scan ID</th>
+        <th>Status</th>
+        <th>Risk Score</th>
+        <th>Risk Level</th>
+        <th>Started</th>
+        <th>Completed</th>
+        <th>Action</th>
+    </tr></thead>
+    <tbody>
+    """, unsafe_allow_html=True)
+
+    for s in filtered:
+        risk = s.get("risk_score")
+        level, color = fmt_risk_level(risk)
+        risk_display = (
+            f'<span style="color:{color};font-weight:600;">{risk}</span>'
+            if risk is not None else "—"
         )
+        st.markdown(f"""
+        <tr>
+            <td class="mono">{shorten_id(str(s.get('id','')))}...</td>
+            <td>{fmt_status_badge(s.get('status','PENDING'))}</td>
+            <td>{risk_display}</td>
+            <td><span style="color:{color};font-size:12px;font-weight:500;">{level}</span></td>
+            <td class="mono">{fmt_datetime(s.get('started_at'))}</td>
+            <td class="mono">{fmt_datetime(s.get('completed_at'))}</td>
+            <td>—</td>
+        </tr>
+        """, unsafe_allow_html=True)
 
-    st.markdown("---")
+    st.markdown("</tbody></table>", unsafe_allow_html=True)
 
-    # ============================================================
-    # INDIVIDUAL SCANS
-    # ============================================================
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-    for scan in scans:
+    # Click to load scan
+    st.markdown('<p class="section-header">Load a Scan</p>', unsafe_allow_html=True)
+    for s in filtered[:5]:
+        if s.get("status") == "COMPLETED":
+            col1, col2 = st.columns([5,1])
+            with col1:
+                risk = s.get("risk_score",0)
+                level, color = fmt_risk_level(risk)
+                st.markdown(f"""
+                <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#58a6ff;">
+                    {str(s.get('id',''))[:16]}...
+                </span>
+                &nbsp;
+                <span style="color:{color};font-size:12px;">{risk}/100 {level}</span>
+                """, unsafe_allow_html=True)
+            with col2:
+                if st.button("View", key=f"hist_view_{s['id']}", use_container_width=True):
+                    st.session_state["selected_scan_id"] = s["id"]
+                    st.session_state["page"] = "scan_results"
+                    st.rerun()
 
-        scan_id = scan.get("id", "")
-        status = scan.get("status", "UNKNOWN")
-
-        risk_score = scan.get("risk_score")
-
-        if risk_score is not None:
-            risk_display = f"{risk_score}/100"
-        else:
-            risk_display = "N/A"
-
-        status_emoji = {
-            "COMPLETED": "✅",
-            "RUNNING": "🔄",
-            "PENDING": "⏳",
-            "FAILED": "❌",
-        }.get(status, "❓")
-
-        created_at = scan.get(
-            "created_at",
-            "N/A"
-        )
-
-        if created_at != "N/A":
-            created_at = created_at[:19]
-
-        # Scan row
-        col1, col2, col3, col4, col5 = st.columns(
-            [3, 2, 2, 2, 1]
-        )
-
-        with col1:
-            st.markdown(
-                f"🆔 `{scan_id[:16]}...`"
-            )
-
-        with col2:
-            st.markdown(
-                f"{status_emoji} **{status}**"
-            )
-
-        with col3:
-            st.markdown(
-                f"Risk: **{risk_display}**"
-            )
-
-        with col4:
-            st.markdown(
-                f"📅 {created_at}"
-            )
-
-        with col5:
-
-            if st.button(
-                "View",
-                key=f"history_view_{scan_id}"
-            ):
-                st.session_state[
-                    "selected_scan_id"
-                ] = scan_id
-
-                st.session_state[
-                    "page"
-                ] = "results"
-
-                st.rerun()
-
-        st.markdown("---")
+    st.markdown('</div>', unsafe_allow_html=True)
